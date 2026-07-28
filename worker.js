@@ -41,7 +41,7 @@ export default {
           text.startsWith(cmd)
         );
         if (isTarotCmd) {
-          await handleTarot(chatId, fromUser, env.TG_TOKEN);
+          await handleTarot(env, chatId, msg.message_id, fromUser, env.TG_TOKEN);
         }
       }
 
