@@ -12,35 +12,37 @@ import { D1AsKV } from './kvAdapter.js';
 export default {
   async fetch(request, env, ctx) {
     
-    // 临时全量迁移接口：访问 https://你的域名/admin/migrate 触发
+  // 临时全量迁移接口：访问 https://你的域名/admin/migrate 触发
 if (new URL(request.url).pathname === "/admin/migrate") {
   const d1kv = getD1AsKV(env);
   let cursor = null;
   let count = 0;
+  let listComplete = false;
 
   try {
-    do {
+    while (!listComplete) {
       // 1. 批量获取 KV 中的 key 列表
       const listResult = await env.DATA_KV.list({ cursor });
       cursor = listResult.cursor;
+      listComplete = listResult.list_complete;
 
+      // 2. 遍历 key 并写入 D1
       for (const keyObj of listResult.keys) {
         const key = keyObj.name;
-        // 2. 从 KV 读取原始值（保持 JSON 结构）
-        const val = await env.DATA_KV.get(key, { type: "json" }) 
-                 || await env.DATA_KV.get(key, "text");
+        // 优先按 JSON 读取，读取不到按文本读取
+        const val = (await env.DATA_KV.get(key, { type: "json" })) 
+                 ?? (await env.DATA_KV.get(key, "text"));
 
-        if (val !== null) {
-          // 3. 写入 D1
+        if (val !== null && val !== undefined) {
           await d1kv.put(key, val);
           count++;
         }
       }
-    } while (!listResult.list_complete);
+    }
 
     return new Response(`✅ 迁移完成！共成功搬运了 ${count} 条 KV 数据到 D1。`);
   } catch (err) {
-    return new Response(`❌ 迁移失败: ${err.message}`, { status: 500 });
+    return new Response(`❌ 迁移失败: ${err.stack || err.message}`, { status: 500 });
   }
 }
     if (request.method !== "POST") {
