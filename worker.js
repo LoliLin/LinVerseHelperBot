@@ -238,7 +238,7 @@ async function handleNotify(env, msg, ctx) {
     const env_categories = await getCategories(d1kv, msg.chat.id);
     if (!Array.isArray(env_categories) || env_categories.length === 0) return false;
 
-    const rawCategories = [...text.matchAll(/@([a-zA-Z0-9_]+)/g)]
+    const rawCategories = [...text.matchAll(/@([\p{L}\p{N}_]+)/gu)]
       .map((m) => m[1].toLowerCase())
       .filter((cat) => env_categories.map(c => String(c).toLowerCase()).includes(cat));
 
