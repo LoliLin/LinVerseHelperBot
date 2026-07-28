@@ -31,13 +31,11 @@ async function drawTarot(userId) {
  * 处理塔罗牌抽牌请求
  * @param {object} env       环境变量 (包含 TAROT_IMAGE_BASE_URL)
  * @param {number} chatId    Telegram 群组 ID
- * @param {string} text      消息文本
  * @param {number} messageId 原消息 ID
  * @param {number} userId    用户 ID
  * @param {string} token     Bot Token
  */
-export async function handleTarot(env, chatId, text, messageId, userId, token) {
-  if (!text.startsWith("/tarot")) return;
+export async function handleTarot(env, chatId, messageId, userId, token) {
 
   // 1. 抽牌
   const { card, isUpright } = await drawTarot(userId);
