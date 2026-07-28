@@ -15,7 +15,7 @@ function mulberry32(seed) {
  * @param {number} userId
  * @returns {Promise<{card: object, isUpright: boolean}>}
  */
-async function drawTarot(userId) {
+async function drawTarot(fromUser) {
   const today = new Date().toISOString().slice(0, 10);
   const userTag = fromUser.username ? `@${fromUser.username}` : `#${fromUser.id}*{fromUser.first_name}`;
   const msgBuffer = new TextEncoder().encode(`tarot:${userTag}:${today}`);
