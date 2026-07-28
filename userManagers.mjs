@@ -21,7 +21,7 @@ export async function buildGroupMentionList(d1kv, token, chatId, category) {
 
   const finalTags = new Set();
 
-  const cachedMembersRaw = await d1kv.get(membersKey, "json");
+  const cachedMembersRaw = await d1kv.get(membersKey, { type: "json" });
   if (Array.isArray(cachedMembersRaw)) {
     cachedMembersRaw.forEach((tag) => finalTags.add(tag));
   }
