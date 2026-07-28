@@ -20,14 +20,16 @@ export default {
         const chatId = msg.chat.id;
         const fromUser = msg.from;
         const text = (msg.text || msg.caption || "").trim();
-        
-        console.log(fromUser + " : "+ msg);
 
         // 功能一：记录活跃用户（只要发言都算）
         await recordActiveUser(env, chatId, fromUser);
 
         // 功能二：人类本质复读机 (+1 匹配)
         const content = getMessageContent(msg);
+
+        console.log(`${fromUser}   :  ${content}`);
+
+        
         if (content) {
           await handleRepeat(env, chatId, content, env.TG_TOKEN);
         }
