@@ -17,6 +17,7 @@ export default {
 
       // 3. 处理有效消息
       if (msg && msg.chat) {
+        console.log(msg);
         const chatId = msg.chat.id;
         const fromUser = msg.from;
         const text = (msg.text || msg.caption || "").trim();
