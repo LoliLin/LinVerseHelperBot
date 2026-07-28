@@ -27,7 +27,7 @@ export default {
         // 功能二：人类本质复读机 (+1 匹配)
         const content = getMessageContent(msg);
 
-        console.log(`${fromUser.first_name} :  ${content}`);
+        console.log(`${fromUser.first_name} :  ${JSON.stringify(content)}`);
 
         
         if (content) {
