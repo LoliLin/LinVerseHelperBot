@@ -17,10 +17,10 @@ function mulberry32(seed) {
  */
 async function drawTarot(userId) {
   const today = new Date().toISOString().slice(0, 10);
-  const msgBuffer = new TextEncoder().encode(`tarot:${userId}:${today}`);
+  const userTag = fromUser.username ? `@${fromUser.username}` : `#${fromUser.id}*{fromUser.first_name}`;
+  const msgBuffer = new TextEncoder().encode(`tarot:${userTag}:${today}`);
   const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
   const numSeed = new DataView(hashBuffer).getUint32(0, false); // 大端序保证跨平台一致
-  console.log(`msgBuffer: tarot:${userId}:${today} numSeed: ${numSeed} `);
   const rng = mulberry32(numSeed);
 
   const cardIndex = Math.floor(rng() * TAROT_CARDS.length);
