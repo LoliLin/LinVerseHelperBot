@@ -83,7 +83,7 @@ async function verifyCommands(cmds, _env, _msg, _ctx, _func, _extraTrigger) {
   const isCmdMatch = Boolean(text) && cmds.some((cmd) => {
     return (!text.startsWith(`${cmd}@`) && text.startsWith(cmd)) 
     || (!text.startsWith(`${cmd}@${_env.BOT_NAME}`))
-  )});
+  });
 
   if (isExtraMatch || isCmdMatch) {
     await _func(_env, _msg, _ctx);
