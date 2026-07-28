@@ -1,4 +1,4 @@
-import { handleTarot } from "./tarot-local.js";
+import { handleTarot } from "./tarot.mjs";
 
 export default {
   async fetch(request, env, ctx) {
