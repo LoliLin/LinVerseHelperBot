@@ -2,7 +2,11 @@ main = "worker.js"
 
 name = "tg-linversehelperbot"
 
-compatibility_date = "2026-07-28"
+compatibility_date = "2026-07-14"
+
+[[kv_namespaces]]
+binding = "DATA_KV"
+id = "6aea0c9c274c4a628ccfeb165e2853f0"
 
 
 [observability]
