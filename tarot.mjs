@@ -1,4 +1,5 @@
 import { TAROT_CARDS } from "./tarotData.js";
+import { makeUserTag } from "./userManagers.mjs";
 
 // 伪随机数发生器 (Mulberry32)
 function mulberry32(seed) {
@@ -17,7 +18,7 @@ function mulberry32(seed) {
  */
 async function drawTarot(fromUser) {
   const today = new Date().toISOString().slice(0, 10);
-  const userTag = fromUser.username ? `@${fromUser.username}` : `#${fromUser.id}*${fromUser.first_name}`;
+  const userTag = makeUserTag(fromUser);
   const msgBuffer = new TextEncoder().encode(`tarot:${userTag}:${today}`);
   const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
   const numSeed = new DataView(hashBuffer).getUint32(0, false); // 大端序保证跨平台一致
@@ -28,15 +29,13 @@ async function drawTarot(fromUser) {
   return { card: TAROT_CARDS[cardIndex], isUpright };
 }
 
-/**
- * 处理塔罗牌抽牌请求
- * @param {object} env       环境变量 (包含 TAROT_IMAGE_BASE_URL)
- * @param {number} chatId    Telegram 群组 ID
- * @param {number} messageId 原消息 ID
- * @param {number} userId    用户 ID
- * @param {string} token     Bot Token
- */
-export async function handleTarot(env, chatId, chatText, messageId, userId, token) {
+
+export async function handleTarot(env, msg, ctx) {
+  const chatId = msg.chat.id;
+  const chatText = (msg.text || msg.caption || "").trim();
+  const messageId = msg.message_id;
+  const userId = msg.from;
+  const token = env.TG_TOKEN;
 
   // 1. 抽牌
   const { card, isUpright } = await drawTarot(userId);

@@ -1,50 +1,50 @@
 import { handleTarot } from "./tarot.mjs";
+import { parseMention, 
+  makeUserTag, 
+  recordUserCategory, 
+  buildGroupMentionList, 
+  postMentionCategory, 
+  getCategories} from "./userManagers.mjs";
+import { D1AsKV } from './kvAdapter.js';
 
 export default {
   async fetch(request, env, ctx) {
-    // 1. 请求方法校验
     if (request.method !== "POST") {
       return new Response("Only POST allowed", { status: 405 });
     }
 
-    // 2. 参数与环境校验
     const configError = verifyArguments(env);
     if (configError) return configError;
+
+    const d1kv = getD1AsKV(env);
 
     try {
       const update = await request.json();
       const msg = update.message;
 
-      // 3. 处理有效消息
       if (msg && msg.chat) {
         const chatId = msg.chat.id;
         const fromUser = msg.from;
         const text = (msg.text || msg.caption || "").trim();
 
-        // 功能一：记录活跃用户（只要发言都算）
-        await recordActiveUser(env, chatId, fromUser);
-
-        // 功能二：人类本质复读机 (+1 匹配)
         const content = getMessageContent(msg);
-
         console.log(`${fromUser.first_name} :  ${JSON.stringify(content)}`);
 
-        
-        if (content) {
-          await handleRepeat(env, chatId, content, env.TG_TOKEN);
-        }
+        await recordActiveUser(d1kv, chatId, fromUser);
 
-        // 功能三：@everyone 召唤
-        if (text) {
-          await handleEveryone(env, chatId, text, msg.message_id, env.TG_TOKEN);
-        }
 
-        // 功能四：每日塔罗牌抽卡（指令触发）
-        const isTarotCmd = ["/tarot", "/塔罗", "/chou", "塔罗牌"].some((cmd) =>
-          text.startsWith(cmd)
-        );
-        if (isTarotCmd) {
-          await handleTarot(env, chatId, text, msg.message_id, fromUser, env.TG_TOKEN);
+
+        let cmdUsed = false;
+        cmdUsed = cmdUsed || await verifyCommands(["/everyone"], env, msg, ctx, handleEveryone, (_env, _msg, _ctx) => _msg.text?.includes("@everyone") || _msg.caption?.includes("@everyone"));
+        cmdUsed = cmdUsed || await verifyCommands(["/tarot", "/塔罗", "/chou", "塔罗牌"], env, msg, ctx, handleTarot);
+        cmdUsed = cmdUsed || await verifyCommands(["/notify"], env, msg, ctx, handleNotify, condition_handleNotify);
+        cmdUsed = cmdUsed || await verifyCommands(["/assign", "/tag"], env, msg, ctx, handleTag);
+
+
+        if(!cmdUsed) {
+          if (content) {
+            await handleRepeat(d1kv, chatId, content, env.TG_TOKEN);
+          }
         }
       }
 
@@ -56,16 +56,45 @@ export default {
   },
 };
 
+function getD1AsKV(env) {
+  return new D1AsKV(env.DATA_DB, env.DATA_KV);
+}
+
+async function verifyCommands(cmds, _env, _msg, _ctx, _func, _extraTrigger) {
+  if (!_msg) return false;
+
+  const text = (_msg.text || _msg.caption || "").trim();
+
+  const isExtraMatch = typeof _extraTrigger === "function" && Boolean(_extraTrigger(_env, _msg, _ctx));
+
+  const isCmdMatch = Boolean(text) && cmds.some((cmd) => {
+    return (!text.startsWith(`${cmd}@`) && text.startsWith(cmd)) 
+    || (!text.startsWith(`${cmd}@${_env.BOT_NAME}`)
+  });
+
+  if (isExtraMatch || isCmdMatch) {
+    await _func(_env, _msg, _ctx);
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * 校验必需的环境变量
  */
 function verifyArguments(env) {
-  if (!env.DATA_KV || !env.TG_TOKEN) {
+  if ( !env.DATA_DB 
+    || !env.DATA_KV 
+    || !env.TG_TOKEN
+    || !env.BOT_NAME
+  ) {
     console.error("❌ 严重错误: 缺少 KV 绑定或 TG_TOKEN 变量配置！");
     return new Response("Config Missing", { status: 500 });
   }
   return null;
 }
+
 
 /**
  * 提取消息的内容唯一 Key 及复读 Payload
@@ -107,44 +136,25 @@ function getMessageContent(msg) {
 /**
  * 记录群内活跃用户（去重存入 KV）
  */
-async function recordActiveUser(env, chatId, fromUser) {
-  if (!fromUser || !fromUser.username || fromUser.is_bot) return;
-
-  const membersKey = `group:${chatId}:members`;
-  let members = [];
-  try {
-    members = (await env.DATA_KV.get(membersKey, { type: "json" })) || [];
-  } catch (e) {
-    console.error("❌ 读取 KV 数据库失败:", e.message);
-    return;
-  }
-
-  const userTag = fromUser.username ? `@${fromUser.username}` : `#${fromUser.id}*${fromUser.first_name}`;
-  if (!members.includes(userTag)) {
-    members.push(userTag);
-    await env.DATA_KV.put(membersKey, JSON.stringify(members));
-    console.log(`✅ 已记录新活跃用户: ${userTag}`);
-  }
+async function recordActiveUser(d1kv, chatId, fromUser) {
+  recordUserCategory(d1kv, chatId, fromUser, "members")
 }
 
 /**
  * 复读机逻辑：检测连续相同内容并自动 +1 复读
  */
-async function handleRepeat(env, chatId, content, token) {
+async function handleRepeat(d1kv, chatId, content, token) {
   if (!content) return;
 
-  const checkText = content.text || content.caption || "";
-  if (checkText.includes("@everyone") || checkText.startsWith("/")) return;
-
   const repeatKey = `group:${chatId}:repeat`;
-  const lastMsgData = (await env.DATA_KV.get(repeatKey, { type: "json" })) || {
+  const lastMsgData = (await d1kv.get(repeatKey, { type: "json" })) || {
     key: "",
     count: 0,
   };
 
   if (content.key === lastMsgData.key) {
     const newCount = lastMsgData.count + 1;
-    await env.DATA_KV.put(
+    await d1kv.put(
       repeatKey,
       JSON.stringify({ key: content.key, count: newCount })
     );
@@ -172,74 +182,185 @@ async function handleRepeat(env, chatId, content, token) {
     });
   } else {
     // 重置复读 Key
-    await env.DATA_KV.put(
+    await d1kv.put(
       repeatKey,
       JSON.stringify({ key: content.key, count: 1 })
     );
   }
 }
 
-function parseMention(raw) {
-  if (raw.startsWith('@')) {
-    return raw; // 直接可用
+async function condition_handleNotify(env, msg, ctx) {
+  if (!msg) return false;
+
+  const text = (msg.text || msg.caption || "").toLowerCase();
+
+  if (text.includes("@everyone") || text.includes("@members")) {
+    return false;
   }
-  const match = raw.match(/^#(\d+)\*(.+)$/);
-  if (match) {
-    const id = match[1];
-    const name = match[2];
-    return `<a href="tg://user?id=${id}">${name}</a>`;
+
+  const d1kv = getD1AsKV(env);
+  const categories = await getCategories(d1kv, msg.chat.id);
+
+  if (!Array.isArray(categories) || categories.length === 0) {
+    return false;
   }
-  return raw;
+
+  return categories.some((cate) => text.includes(`@${String(cate).toLowerCase()}`));
+}
+
+async function handleNotify(env, msg, ctx) {
+  const text = (msg.text || msg.caption || "").trim();
+  if (text.startsWith("/")) {
+    const cmds = text.split(" ");
+    if (cmds.length == 2) {
+      const category = cmds[1];
+      await postMentionCategory(getD1AsKV(env), msg.chat.id, msg.message_id, env.TG_TOKEN, cmds[1]);
+      return true;
+    }
+    await postInvokeSuccess(msg.chat.id, msg.message_id, env.TG_TOKEN, "/notify tag 喵！");
+    return true;
+  } else {
+      const env_categories = await getCategories(getD1AsKV(env), msg.chat.id);
+
+      const rawCategories = [...text.matchAll(/@([a-zA-Z0-9_]+)/g)]
+        .map((m) => m[1].toLowerCase())
+        .filter((cat) => env_categories.includes(cat));
+      const categories = [...new Set(rawCategories)];
+
+
+      const d1kv = getD1AsKV(env);
+      const mentionsSet = new Set();
+
+      for (const category of categories) {
+        const mentions = await buildGroupMentionList(d1kv, env.TG_TOKEN, msg.chat.id, category);
+        if (Array.isArray(mentions)) {
+          mentions.forEach((user) => mentionsSet.add(user));
+        }
+      }
+
+      const usersMentions = Array.from(mentionsSet);
+      const mentionText = usersMentions.join(" ");
+      await fetch(`https://api.telegram.org/bot${env.TG_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+        chat_id: msg.chat.id,
+        text: mentionText,
+        reply_to_message_id: msg.message_id,
+        parse_mode: "HTML"
+      }),
+    });
+  }
 }
 
 /**
- * 处理 @everyone / /everyone 召唤功能
+4 种逻辑精准分流：
+
+回复 + /tag dev：给被回复者打上 dev 标签。
+
+回复 + /tag @Cynun：提取被回复消息的内容作为 category，打给 @Cynun。
+
+单发 + /tag dev：给消息发送者自己打上 dev 标签。
+
+单发 + /tag dev @Cynun（顺序可颠倒）：给 @Cynun 打上 dev 标签。
  */
-async function handleEveryone(env, chatId, text, messageId, token) {
-  if (!text.includes("@everyone") && !text.startsWith("/everyone")) return;
 
-  console.log("🎯 触发了 @everyone 逻辑");
-  const membersKey = `group:${chatId}:members`;
+export async function handleTag(env, msg, ctx) {
+  const text = (msg.text || msg.caption || "").trim();
+  
+  const args = text.split(/\s+/).slice(1); 
+  if (args.length === 0) return;
 
-  let cachedMembersRaw = [];
-  let adminsResponse = { ok: false };
+  const replyMsg = msg.reply_to_message;
+  let targetUser = null;
+  let category = "";
 
-  try {
-    const [kvData, tgData] = await Promise.all([
-      env.DATA_KV.get(membersKey, { type: "json" }),
-      fetch(
-        `https://api.telegram.org/bot${token}/getChatAdministrators?chat_id=${chatId}`
-      ).then((res) => res.json()),
-    ]);
-    cachedMembersRaw = kvData;
-    adminsResponse = tgData;
-  } catch (e) {
-    console.error("❌ 读取 KV 或请求 TG 管理员列表失败:", e.message);
-  }
+  if (replyMsg) {
+    // ==========================================
+    // 场景 1 & 场景 2：回复某人的消息
+    // ==========================================
+    const firstArg = args[0];
 
-  const finalTags = new Set(cachedMembersRaw || []);
+    if (firstArg.startsWith("@")) {
+      // 【场景 2】回复某人 + /tag @otherone
+      // -> 给 @otherone 打上 [被回复人说话内容] 的标签
+      targetUser = { username: firstArg.replace(/^@/, "") };
+      category = (replyMsg.text || replyMsg.caption || "").trim();
+    } else {
+      // 【场景 1】回复某人 + /tag something
+      // -> 给 [被回复人] 打上 something 标签
+      targetUser = replyMsg.from;
+      category = firstArg;
+    }
+  } else {
+    // ==========================================
+    // 场景 3 & 场景 4：单条消息（未回复）
+    // ==========================================
+    if (args.length === 1) {
+      // 【场景 3】单发 /tag something
+      // -> 给 [发送者自己] 打上 something 标签
+      targetUser = msg.from;
+      category = args[0];
+    } else {
+      // 【场景 4】单发 /tag something @someone (或 /tag @someone something)
+      // 自动寻找带 @ 的参数作为目标用户，另一个作为分组标签
+      const mentionArg = args.find((a) => a.startsWith("@"));
+      const categoryArg = args.find((a) => !a.startsWith("@"));
 
-  if (adminsResponse.ok && adminsResponse.result) {
-    for (const admin of adminsResponse.result) {
-      if (admin.user && !admin.user.is_bot) {
-        finalTags.add(admin.user.username ? `@${admin.user.username}` : `#${admin.user.id}*${admin.user.first_name}`);
+      if (mentionArg && categoryArg) {
+        targetUser = { username: mentionArg.replace(/^@/, "") };
+        category = categoryArg;
+      } else {
+        category = args[0];
+        targetUser = { username: args[1].replace(/^@/, "") };
       }
     }
   }
 
-  const resultList = Array.from(finalTags).map(parseMention);
-  if (resultList.length > 0) {
-    const mentionText = resultList.join(" ");
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: mentionText,
-        reply_to_message_id: messageId,
-        parse_mode: "HTML"
-      }),
-    });
-    console.log("📤 @everyone 消息发送完毕");
+  if (!targetUser || !category) {
+    return;
   }
+
+  const d1kv = getD1AsKV(env);
+  await recordUserCategory(d1kv, msg.chat.id, targetUser, category);
+
+  const displayName = getDisplayName(targetUser);
+  await postInvokeSuccess(
+    msg.chat.id, 
+    msg.message_id, 
+    env.TG_TOKEN, 
+    `好的喵！已将 ${displayName} 归类到 #${category}`
+  );
+}
+
+function getDisplayName(user) {
+  if (typeof user === "string") return user.startsWith("@") ? user : `@${user}`;
+  if (user.username) return `@${user.username}`;
+  if (user.first_name) return user.first_name;
+  return `User(${user.id})`;
+}
+
+async function handleEveryone(env, msg, ctx) {
+  console.log("🎯 触发了 @everyone 逻辑");
+  await postMentionCategory(getD1AsKV(env), msg.chat.id, msg.message_id, env.TG_TOKEN, "members")
+}
+
+async function postInvokeSuccess(chatId, messageId, token, text = "好的喵！") {
+  const body = {
+    chat_id: chatId,
+    text: text,
+    parse_mode: "HTML",
+  };
+
+  if (messageId) {
+    body.reply_to_message_id = messageId;
+  }
+
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  return await res.json();
 }

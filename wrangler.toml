@@ -8,6 +8,11 @@ compatibility_date = "2026-07-14"
 binding = "DATA_KV"
 id = "6aea0c9c274c4a628ccfeb165e2853f0"
 
+[[d1_databases]]
+binding = "DATA_DB"
+database_name = "tg-linbot"
+database_id = "f894bcee-a08f-488c-b157-3e63465e8553"
+
 
 [observability]
 enabled = false
