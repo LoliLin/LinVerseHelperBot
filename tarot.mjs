@@ -20,6 +20,7 @@ async function drawTarot(userId) {
   const msgBuffer = new TextEncoder().encode(`tarot:${userId}:${today}`);
   const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
   const numSeed = new DataView(hashBuffer).getUint32(0, false); // 大端序保证跨平台一致
+  console.log(`msgBuffer: tarot:${userId}:${today} numSeed: ${numSeed} `);
   const rng = mulberry32(numSeed);
 
   const cardIndex = Math.floor(rng() * TAROT_CARDS.length);
@@ -35,7 +36,7 @@ async function drawTarot(userId) {
  * @param {number} userId    用户 ID
  * @param {string} token     Bot Token
  */
-export async function handleTarot(env, chatId, messageId, userId, token) {
+export async function handleTarot(env, chatId, chatText, messageId, userId, token) {
 
   // 1. 抽牌
   const { card, isUpright } = await drawTarot(userId);
