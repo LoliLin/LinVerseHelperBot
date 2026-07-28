@@ -119,7 +119,7 @@ async function recordActiveUser(env, chatId, fromUser) {
     return;
   }
 
-  const userTag = fromUser.username ? `@${fromUser.username}` : `#${fromUser.id}*{fromUser.first_name}`;
+  const userTag = fromUser.username ? `@${fromUser.username}` : `#${fromUser.id}*${fromUser.first_name}`;
   if (!members.includes(userTag)) {
     members.push(userTag);
     await env.DATA_KV.put(membersKey, JSON.stringify(members));
@@ -222,7 +222,7 @@ async function handleEveryone(env, chatId, text, messageId, token) {
   if (adminsResponse.ok && adminsResponse.result) {
     for (const admin of adminsResponse.result) {
       if (admin.user && !admin.user.is_bot) {
-        finalTags.add(admin.user.username ? `@${admin.user.username}` : `#${admin.user.id}*{admin.user.first_name}`);
+        finalTags.add(admin.user.username ? `@${admin.user.username}` : `#${admin.user.id}*${admin.user.first_name}`);
       }
     }
   }
