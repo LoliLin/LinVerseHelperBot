@@ -45,7 +45,7 @@ export async function buildGroupMentionList(d1kv, token, chatId, category) {
     }
   }
 
-  return = Array.from(finalTags).map(parseMention);
+  return Array.from(finalTags).map(parseMention);
 }
 
 export async function getCategories(d1kv, chatId) {
