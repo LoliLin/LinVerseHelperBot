@@ -58,6 +58,8 @@ export async function handleTarot(env, chatId, text, messageId, userId, token) {
   // 4. 构建 caption
   const caption = `${card.name} (${position})\n\n解读:\n${interpretation}`;
 
+  console.log(`✅ 已抽取塔罗牌: ${caption}`);
+
   // 5. 通过 Telegram API 发送图片（带描述）
   const apiUrl = `https://api.telegram.org/bot${token}/sendPhoto`;
   const res = await fetch(apiUrl, {
