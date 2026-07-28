@@ -77,7 +77,10 @@ async function verifyCommands(cmds, _env, _msg, _ctx, _func, _extraTrigger) {
   const text = (_msg.text || _msg.caption || "").trim();
 
   // 1. 触发条件一：可选的自定义条件回调
-  const isExtraMatch = typeof _extraTrigger === "function" && Boolean(_extraTrigger(_env, _msg, _ctx));
+  let isExtraMatch = false;
+  if (typeof _extraTrigger === "function") {
+    isExtraMatch = Boolean(await _extraTrigger(_env, _msg, _ctx));
+  }
 
   // 2. 触发条件二：指令正则匹配（自动兼容 /cmd, /cmd@botname 及无斜杠指令）
   const isCmdMatch = cmds.some((cmd) => {
@@ -199,9 +202,9 @@ async function handleRepeat(d1kv, chatId, content, token) {
 async function condition_handleNotify(env, msg, ctx) {
   if (!msg) return false;
 
-  const text = (msg.text || msg.caption || "").toLowerCase();
+  const text = (msg.text || msg.caption || "").toLowerCase().trim();
 
-  if (text.startsWith("/") ||text.includes("@everyone") || text.includes("@members")) {
+  if (text.startsWith("/") || text.includes("@everyone") || text.includes("@members")) {
     return false;
   }
 
@@ -212,7 +215,7 @@ async function condition_handleNotify(env, msg, ctx) {
     return false;
   }
 
-  return categories.some((cate) => return text.includes(`@${String(cate)}`));
+  return categories.some((cate) => text.includes(`@${String(cate).toLowerCase()}`));
 }
 
 /**
