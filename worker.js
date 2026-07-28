@@ -7,7 +7,7 @@ export default {
       return new Response("Only POST allowed", { status: 405 });
     }
 
-    // 2. 参数与环境校验（提取为 verifyArguments）
+    // 2. 参数与环境校验
     const configError = verifyArguments(env);
     if (configError) return configError;
 
@@ -15,61 +15,33 @@ export default {
       const update = await request.json();
       const msg = update.message;
 
-      // 调整条件：只要有有效的 msg 和 chat 就继续处理（不限于普通文本）
+      // 3. 处理有效消息
       if (msg && msg.chat) {
         const chatId = msg.chat.id;
         const fromUser = msg.from;
-
-        // 提取文本内容（普通文本 或 图片/文件的配图说明 caption）
         const text = (msg.text || msg.caption || "").trim();
 
-        // 提取图片或 Sticker 信息（包含类型、fileId 和 uniqueId）
-        const media = getMediaInfo(msg);
-
-        // 功能一：记录活跃用户（只要发了消息/图片/表情，都算活跃）
+        // 功能一：记录活跃用户（只要发言都算）
         await recordActiveUser(env, chatId, fromUser);
 
-        // 功能二：人类本质复读机（传参支持文本与媒体）
-        await handleRepeat(env, chatId, { text, media }, env.TG_TOKEN);
-
-        // 功能三：@everyone 召唤（如果带了文本或带图文 caption）
-        if (text) {
-          await handleEveryone(env, chatId, text, msg.message_id, env.TG_TOKEN);
-          
-          await handleTarot(env, chatId, text, msg.message_id, fromUser, env.TG_TOKEN);
-        }
-      }
-
-      return new Response("OK", { status: 200 });
-    } catch (err) {
-      console.error("🚨 运行时发生严重崩溃:", err.stack || err.toString());
-      return new Response(err.toString(), { status: 500 });
-    }
-
-    try {
-      const update = await request.json();
-      const msg = update.message;
-
-      // 只处理带文本的有效消息
-      if (msg && msg.text && msg.chat) {
-        const chatId = msg.chat.id;
-        const text = msg.text.trim();
-        const fromUser = msg.from;
-
-        // 功能一：动态收集普通发言用户（委派）
-        await recordActiveUser(env, chatId, fromUser);
-
-        // 功能二：人类本质复读机（委派）
+        // 功能二：人类本质复读机 (+1 匹配)
         const content = getMessageContent(msg);
-
-        // 3. 只要提取出了有效 content，就进行 +1 复读比对
         if (content) {
           await handleRepeat(env, chatId, content, env.TG_TOKEN);
         }
-        await handleRepeat(env, chatId, text, env.TG_TOKEN);
 
-        // 功能三：@everyone 召唤（委派）
-        await handleEveryone(env, chatId, text, msg.message_id, env.TG_TOKEN);
+        // 功能三：@everyone 召唤
+        if (text) {
+          await handleEveryone(env, chatId, text, msg.message_id, env.TG_TOKEN);
+        }
+
+        // 功能四：每日塔罗牌抽卡（指令触发）
+        const isTarotCmd = ["/tarot", "/塔罗", "/chou", "塔罗牌"].some((cmd) =>
+          text.startsWith(cmd)
+        );
+        if (isTarotCmd) {
+          await handleTarot(chatId, fromUser, env.TG_TOKEN);
+        }
       }
 
       return new Response("OK", { status: 200 });
@@ -77,13 +49,11 @@ export default {
       console.error("🚨 运行时发生严重崩溃:", err.stack || err.toString());
       return new Response(err.toString(), { status: 500 });
     }
-  }
+  },
 };
 
 /**
- * 校验必需的配置参数
- * @param {Object} env 环境变量
- * @returns {Response|null} 缺少配置时返回错误响应，否则返回 null
+ * 校验必需的环境变量
  */
 function verifyArguments(env) {
   if (!env.DATA_KV || !env.TG_TOKEN) {
@@ -100,9 +70,9 @@ function getMessageContent(msg) {
   // 1. 贴纸 Sticker
   if (msg.sticker) {
     return {
-      key: `sticker:${msg.sticker.file_unique_id}`, // 内容唯一 Key
+      key: `sticker:${msg.sticker.file_unique_id}`,
       type: "sticker",
-      fileId: msg.sticker.file_id                  // 复读发送时需要的 ID
+      fileId: msg.sticker.file_id,
     };
   }
 
@@ -113,7 +83,7 @@ function getMessageContent(msg) {
       key: `photo:${photo.file_unique_id}`,
       type: "photo",
       fileId: photo.file_id,
-      caption: msg.caption || ""
+      caption: msg.caption || "",
     };
   }
 
@@ -123,19 +93,15 @@ function getMessageContent(msg) {
     return {
       key: `text:${text}`,
       type: "text",
-      text: text
+      text: text,
     };
   }
 
-  // 其他类型（如语音、视频、文件等暂不响应 +1）
   return null;
 }
 
 /**
  * 记录群内活跃用户（去重存入 KV）
- * @param {Object} env 环境变量（含 DATA_KV）
- * @param {number} chatId 群聊 ID
- * @param {Object} fromUser 消息发送者
  */
 async function recordActiveUser(env, chatId, fromUser) {
   if (!fromUser || !fromUser.username || fromUser.is_bot) return;
@@ -158,29 +124,28 @@ async function recordActiveUser(env, chatId, fromUser) {
 }
 
 /**
- * 复读机逻辑：检测连续相同内容（文本/贴纸/图片）并自动 +1 复读
- * @param {Object} env 环境变量（含 DATA_KV）
- * @param {number} chatId 群聊 ID
- * @param {Object} content 消息内容对象（由 getMessageContent 提取）
- * @param {string} token 机器人 Token
+ * 复读机逻辑：检测连续相同内容并自动 +1 复读
  */
 async function handleRepeat(env, chatId, content, token) {
   if (!content) return;
 
-  // 1. 排除 @everyone 和指令类消息（兼容图片配图 caption）
   const checkText = content.text || content.caption || "";
   if (checkText.includes("@everyone") || checkText.startsWith("/")) return;
 
   const repeatKey = `group:${chatId}:repeat`;
-  const lastMsgData = (await env.DATA_KV.get(repeatKey, { type: "json" })) || { key: "", count: 0 };
+  const lastMsgData = (await env.DATA_KV.get(repeatKey, { type: "json" })) || {
+    key: "",
+    count: 0,
+  };
 
-  // 2. 比对 content.key
   if (content.key === lastMsgData.key) {
     const newCount = lastMsgData.count + 1;
-    await env.DATA_KV.put(repeatKey, JSON.stringify({ key: content.key, count: newCount }));
+    await env.DATA_KV.put(
+      repeatKey,
+      JSON.stringify({ key: content.key, count: newCount })
+    );
     console.log(`🔁 发现复读！Key: "${content.key}"，当前第 ${newCount} 次`);
 
-    // 3. 根据媒体类型选择 Telegram API 接口与 Payload
     let endpoint = "sendMessage";
     let body = { chat_id: chatId };
 
@@ -196,25 +161,22 @@ async function handleRepeat(env, chatId, content, token) {
       body.text = content.text;
     }
 
-    // 4. 发送复读响应
     await fetch(`https://api.telegram.org/bot${token}/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
   } else {
-    // 话题中断，重置 Key 和计数
-    await env.DATA_KV.put(repeatKey, JSON.stringify({ key: content.key, count: 1 }));
+    // 重置复读 Key
+    await env.DATA_KV.put(
+      repeatKey,
+      JSON.stringify({ key: content.key, count: 1 })
+    );
   }
 }
 
 /**
  * 处理 @everyone / /everyone 召唤功能
- * @param {Object} env 环境变量（含 DATA_KV）
- * @param {number} chatId 群聊 ID
- * @param {string} text 消息文本
- * @param {number} messageId 原消息 ID（用于回复）
- * @param {string} token 机器人 Token
  */
 async function handleEveryone(env, chatId, text, messageId, token) {
   if (!text.includes("@everyone") && !text.startsWith("/everyone")) return;
@@ -228,7 +190,9 @@ async function handleEveryone(env, chatId, text, messageId, token) {
   try {
     const [kvData, tgData] = await Promise.all([
       env.DATA_KV.get(membersKey, { type: "json" }),
-      fetch(`https://api.telegram.org/bot${token}/getChatAdministrators?chat_id=${chatId}`).then(res => res.json()),
+      fetch(
+        `https://api.telegram.org/bot${token}/getChatAdministrators?chat_id=${chatId}`
+      ).then((res) => res.json()),
     ]);
     cachedMembersRaw = kvData;
     adminsResponse = tgData;
