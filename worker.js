@@ -17,10 +17,11 @@ export default {
 
       // 3. 处理有效消息
       if (msg && msg.chat) {
-        console.log(msg);
         const chatId = msg.chat.id;
         const fromUser = msg.from;
         const text = (msg.text || msg.caption || "").trim();
+        
+        console.log(fromUser + " : "+ msg);
 
         // 功能一：记录活跃用户（只要发言都算）
         await recordActiveUser(env, chatId, fromUser);
@@ -41,7 +42,7 @@ export default {
           text.startsWith(cmd)
         );
         if (isTarotCmd) {
-          await handleTarot(env, chatId, msg.message_id, fromUser, env.TG_TOKEN);
+          await handleTarot(env, chatId, text, msg.message_id, fromUser, env.TG_TOKEN);
         }
       }
 
