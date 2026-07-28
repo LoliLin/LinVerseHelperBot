@@ -119,7 +119,7 @@ async function recordActiveUser(env, chatId, fromUser) {
     return;
   }
 
-  const userTag = `@${fromUser.username}`;
+  const userTag = fromUser.username ? `@${fromUser.username}` : `#${fromUser.id}*{fromUser.first_name}`;
   if (!members.includes(userTag)) {
     members.push(userTag);
     await env.DATA_KV.put(membersKey, JSON.stringify(members));
@@ -179,6 +179,19 @@ async function handleRepeat(env, chatId, content, token) {
   }
 }
 
+function parseMention(raw) {
+  if (raw.startsWith('@')) {
+    return raw; // 直接可用
+  }
+  const match = raw.match(/^#(\d+)\*(.+)$/);
+  if (match) {
+    const id = match[1];
+    const name = match[2];
+    return `<a href="tg://user?id=${id}">${name}</a>`;
+  }
+  return raw;
+}
+
 /**
  * 处理 @everyone / /everyone 召唤功能
  */
@@ -208,13 +221,13 @@ async function handleEveryone(env, chatId, text, messageId, token) {
 
   if (adminsResponse.ok && adminsResponse.result) {
     for (const admin of adminsResponse.result) {
-      if (admin.user && admin.user.username && !admin.user.is_bot) {
-        finalTags.add(`@${admin.user.username}`);
+      if (admin.user && !admin.user.is_bot) {
+        finalTags.add(admin.user.username ? `@${admin.user.username}` : `#${admin.user.id}*{admin.user.first_name}`);
       }
     }
   }
 
-  const resultList = Array.from(finalTags);
+  const resultList = Array.from(finalTags).map(parseMention);
   if (resultList.length > 0) {
     const mentionText = resultList.join(" ");
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -224,6 +237,7 @@ async function handleEveryone(env, chatId, text, messageId, token) {
         chat_id: chatId,
         text: mentionText,
         reply_to_message_id: messageId,
+        parse_mode: "HTML"
       }),
     });
     console.log("📤 @everyone 消息发送完毕");
