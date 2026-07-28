@@ -96,6 +96,52 @@ export async function recordUserCategory(d1kv, chatId, fromUser, category) {
   }
 }
 
+export async function unrecordUserCategory(d1kv, chatId, fromUser, category) {
+  if (!fromUser || fromUser.is_bot) return;
+
+  const membersKey = `group:${chatId}:${category}`;
+  const categoriesKey = `group:${chatId}*categories`;
+
+  // 1. 读取 members 列表并移除当前用户
+  let members = [];
+  try {
+    members = (await d1kv.get(membersKey, { type: "json" })) || [];
+  } catch (e) {
+    console.error("❌ 读取 KV 数据库失败:", e.message);
+    return;
+  }
+
+  const userTag = makeUserTag(fromUser);
+  const originalLength = members.length;
+
+  // 过滤掉当前用户
+  members = members.filter((user) => user !== userTag);
+
+  // 如果长度未发生改变，说明用户原本就不在该分类里，无需重复更新
+  if (members.length === originalLength) {
+    return;
+  }
+
+  // 保存移除后的成员列表
+  await d1kv.put(membersKey, JSON.stringify(members));
+
+  // 2. 如果该分类下已经没有任何成员，则将该 category 从总分类列表中删除
+  if (members.length === 0) {
+    let categories = [];
+    try {
+      categories = (await d1kv.get(categoriesKey, { type: "json" })) || [];
+    } catch (e) {
+      console.error("❌ 读取 KV 数据库失败:", e.message);
+      return;
+    }
+
+    if (categories.includes(category)) {
+      categories = categories.filter((item) => item !== category);
+      await d1kv.put(categoriesKey, JSON.stringify(categories));
+    }
+  }
+}
+
 export async function postMentionCategory(d1kv, chatId, messageId, token, category) {
   const resultList = buildGroupMentionList(d1kv, token, chatId, category);
   if (resultList.length > 0) {

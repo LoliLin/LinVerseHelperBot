@@ -3,6 +3,7 @@ import {
   parseMention, 
   makeUserTag, 
   recordUserCategory, 
+  unrecordUserCategory,
   buildGroupMentionList, 
   postMentionCategory, 
   getCategories 
@@ -48,6 +49,9 @@ export default {
         );
         cmdUsed = cmdUsed || await verifyCommands(
           ["/assign", "/tag"], env, msg, ctx, handleTag
+        );
+        cmdUsed = cmdUsed || await verifyCommands(
+          ["/unassign", "/remove"], env, msg, ctx, handleRemoveTag
         );
 
         // 如果没有触发任何指令，执行复读机逻辑
@@ -328,7 +332,59 @@ export async function handleTag(env, msg, ctx) {
     msg.chat.id, 
     msg.message_id, 
     env.TG_TOKEN, 
-    `好的喵！已将 ${displayName} 归类到 #${category}`
+    `好的喵！已将 ${displayName} 归类到 @${category}`
+  );
+}
+
+export async function handleRemoveTag(env, msg, ctx) {
+  const text = (msg.text || msg.caption || "").trim();
+  
+  const args = text.split(/\s+/).slice(1); 
+  if (args.length === 0) return;
+
+  const replyMsg = msg.reply_to_message;
+  let targetUser = null;
+  let category = "";
+
+  if (replyMsg) {
+    const firstArg = args[0];
+
+    if (firstArg.startsWith("@")) {
+      targetUser = { username: firstArg.replace(/^@/, "") };
+      category = (replyMsg.text || replyMsg.caption || "").trim();
+    } else {
+      targetUser = replyMsg.from;
+      category = firstArg;
+    }
+  } else {
+    if (args.length === 1) {
+      targetUser = msg.from;
+      category = args[0];
+    } else {
+      const mentionArg = args.find((a) => a.startsWith("@"));
+      const categoryArg = args.find((a) => !a.startsWith("@"));
+
+      if (mentionArg && categoryArg) {
+        targetUser = { username: mentionArg.replace(/^@/, "") };
+        category = categoryArg;
+      } else if (args[1]) {
+        category = args[0];
+        targetUser = { username: args[1].replace(/^@/, "") };
+      }
+    }
+  }
+
+  if (!targetUser || !category) return;
+
+  const d1kv = getD1AsKV(env);
+  await unrecordUserCategory(d1kv, msg.chat.id, targetUser, category);
+
+  const displayName = getDisplayName(targetUser);
+  await postInvokeSuccess(
+    msg.chat.id, 
+    msg.message_id, 
+    env.TG_TOKEN, 
+    `好的喵！已将 ${displayName} 从 @${category} 移出`
   );
 }
 
