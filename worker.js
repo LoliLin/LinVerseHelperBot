@@ -80,7 +80,7 @@ async function verifyCommands(cmds, _env, _msg, _ctx, _func, _extraTrigger) {
   const isExtraMatch = typeof _extraTrigger === "function" && Boolean(_extraTrigger(_env, _msg, _ctx));
 
   // 2. 触发条件二：指令正则匹配（自动兼容 /cmd, /cmd@botname 及无斜杠指令）
-  const isCmdMatch = Boolean(text) && cmds.some((cmd) => {
+  const isCmdMatch = cmds.some((cmd) => {
     return (!text.startsWith(`${cmd}@`) && text.startsWith(cmd)) 
     || (!text.startsWith(`${cmd}@${_env.BOT_NAME}`))
   });
