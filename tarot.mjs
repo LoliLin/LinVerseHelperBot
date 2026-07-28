@@ -22,6 +22,8 @@ async function drawTarot(userId) {
   const numSeed = new DataView(hashBuffer).getUint32(0, false); // 大端序保证跨平台一致
   const rng = mulberry32(numSeed);
 
+  rng();
+
   const cardIndex = Math.floor(rng() * TAROT_CARDS.length);
   const isUpright = rng() >= 0.5;
   return { card: TAROT_CARDS[cardIndex], isUpright };
