@@ -32,7 +32,7 @@ export default {
         const content = getMessageContent(msg);
         if (fromUser) {
           if (content) {
-            console.log(`${fromUser.first_name || 'User'} : ${JSON.stringify(content)}`);
+            console.log(`${fromUser.first_name || 'User'} : ${JSON.stringify(msg)}`);
           } else {
             console.log(`${fromUser.first_name || 'User'} : ${JSON.stringify(msg)}`);
           }
