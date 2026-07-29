@@ -9,6 +9,7 @@ import {
   getCategories 
 } from "./userManagers.mjs";
 import { D1AsKV } from './kvAdapter.js';
+import { handleAIChat, handleReset, handleForget, handleHelp } from "./geminiChat.mjs";
 
 export default {
   async fetch(request, env, ctx) {
@@ -59,6 +60,18 @@ export default {
         );
         cmdUsed = cmdUsed || await verifyCommands(
           ["/unassign", "/remove"], env, msg, ctx, handleRemoveTag
+        );
+        cmdUsed = cmdUsed || await verifyCommands(
+          ["/ai", "/chat"], env, msg, ctx, handleAIChat
+        );
+        cmdUsed = cmdUsed || await verifyCommands(
+          ["/reset"], env, msg, ctx, handleReset
+        );
+        cmdUsed = cmdUsed || await verifyCommands(
+          ["/forget"], env, msg, ctx, handleForget
+        );
+        cmdUsed = cmdUsed || await verifyCommands(
+          ["/help"], env, msg, ctx, handleHelp
         );
 
         // 如果没有触发任何指令，执行复读机逻辑
