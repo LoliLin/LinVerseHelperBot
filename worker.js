@@ -37,6 +37,8 @@ export default {
             console.log(`${fromUser.first_name || 'User'} : ${JSON.stringify(msg)}`);
           }
           await recordActiveUser(d1kv, chatId, fromUser);
+        } else {
+          console.log(`${JSON.stringify(msg)}`);
         }
 
         // 顺序匹配指令（匹配成功即短路停止后续匹配）
