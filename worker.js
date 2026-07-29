@@ -31,7 +31,11 @@ export default {
 
         const content = getMessageContent(msg);
         if (fromUser) {
-          console.log(`${fromUser.first_name || 'User'} : ${JSON.stringify(content)}`);
+          if (content) {
+            console.log(`${fromUser.first_name || 'User'} : ${JSON.stringify(content)}`);
+          } else {
+            console.log(`${fromUser.first_name || 'User'} : ${JSON.stringify(msg)}`);
+          }
           await recordActiveUser(d1kv, chatId, fromUser);
         }
 
