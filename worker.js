@@ -23,6 +23,7 @@ export default {
 
     try {
       const update = await request.json();
+      console.log(`update : ${JSON.stringify(update)}`);
       const msg = update.message;
 
       if (msg && msg.chat) {
