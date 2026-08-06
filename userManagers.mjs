@@ -143,7 +143,7 @@ export async function unrecordUserCategory(d1kv, chatId, fromUser, category) {
 }
 
 export async function postMentionCategory(d1kv, chatId, messageId, token, category) {
-  const resultList = buildGroupMentionList(d1kv, token, chatId, category);
+  const resultList = await buildGroupMentionList(d1kv, token, chatId, category);
   if (resultList.length > 0) {
     const mentionText = resultList.join(" ");
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
