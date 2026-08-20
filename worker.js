@@ -160,62 +160,108 @@ async function recordActiveUser(d1kv, chatId, fromUser) {
 }
 
 /**
- * 复读机逻辑：检测连续相同内容并自动 +1 复读
+ * 复读机逻辑：
+ * 2 次人类连续相同 -> Bot 复读
+ * Bot 复读后，人类再次发送相同内容 -> 忽略
+ * 直到出现不同内容，才重新开始统计
  */
 async function handleRepeat(d1kv, chatId, content, token) {
-     if (!content) return;
+  if (!content) return;
 
-     const repeatKey = `group:${chatId}:repeat`;
-     const lastMsgData = (await d1kv.get(repeatKey, { type: "json" })) || {
-         key: "",
-         count: 0,
-     };
+  const repeatKey = `group:${chatId}:repeat`;
 
-     if (content.key === lastMsgData.key) {
-        const newCount = lastMsgData.count + 1;
-        if (newCount >= 2) {
-            console.log(`🔁 发现复读！Key: "${content.key}"，当前第 ${newCount} 次`);
+  const lastMsgData = (await d1kv.get(repeatKey, { type: "json" })) || {
+    key: "",
+    count: 0,
+    botRepeated: false,
+  };
 
-            let endpoint = "sendMessage";
-            let body = { chat_id: chatId };
+  // 1. 如果内容变了，直接开始新的复读计数
+  if (content.key !== lastMsgData.key) {
+    await d1kv.put(
+      repeatKey,
+      JSON.stringify({
+        key: content.key,
+        count: 1,
+        botRepeated: false,
+      })
+    );
+    return;
+  }
 
-            if (content.type === "sticker") {
-                endpoint = "sendSticker";
-                body.sticker = content.fileId;
-            } else if (content.type === "photo") {
-                endpoint = "sendPhoto";
-                body.photo = content.fileId;
-                if (content.caption) body.caption = content.caption;
-            } else if (content.type === "text") {
-                endpoint = "sendMessage";
-                body.text = content.text;
-            }
+  // 2. Bot 刚刚已经复读过这个内容
+  //    人类再次复读同样内容时，不增加计数，也不再次复读
+  if (lastMsgData.botRepeated) {
+    return;
+  }
 
-            await fetch(`https://api.telegram.org/bot${token}/${endpoint}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-            });
+  // 3. 相同内容继续累计
+  const newCount = lastMsgData.count + 1;
 
-            // Bot 复读后重新开始计数。
-            // 下一条相同内容的人类消息只作为第 1 次，不立即再次触发复读。
-            await d1kv.put(
-                repeatKey,
-                JSON.stringify({ key: content.key, count: 0 })
-            );
-        } else {
-            await d1kv.put(
-                repeatKey,
-                JSON.stringify({ key: content.key, count: newCount })
-            );
-        }
+  // 4. 达到两次，Bot 复读
+  if (newCount >= 2) {
+    console.log(
+      `🔁 发现复读！Key: "${content.key}"，当前第 ${newCount} 次`
+    );
 
-     } else {
-         await d1kv.put(
-             repeatKey,
-             JSON.stringify({ key: content.key, count: 1 })
-         );
-     }
+    let endpoint = "sendMessage";
+    let body = { chat_id: chatId };
+
+    if (content.type === "sticker") {
+      endpoint = "sendSticker";
+      body.sticker = content.fileId;
+    } else if (content.type === "photo") {
+      endpoint = "sendPhoto";
+      body.photo = content.fileId;
+      if (content.caption) {
+        body.caption = content.caption;
+      }
+    } else if (content.type === "text") {
+      endpoint = "sendMessage";
+      body.text = content.text;
+    }
+
+    const response = await fetch(
+      `https://api.telegram.org/bot${token}/${endpoint}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (!response.ok) {
+      console.error(
+        `❌ Bot 复读失败: HTTP ${response.status} ${await response.text()}`
+      );
+      return;
+    }
+
+    // Bot 已经复读这个内容。
+    // 保留 key，但标记 botRepeated，直到出现不同内容。
+    await d1kv.put(
+      repeatKey,
+      JSON.stringify({
+        key: content.key,
+        count: newCount,
+        botRepeated: true,
+      })
+    );
+
+    return;
+  }
+
+  // 5. 还没达到复读阈值，继续累计
+  await d1kv.put(
+    repeatKey,
+    JSON.stringify({
+      key: content.key,
+      count: newCount,
+      botRepeated: false,
+    })
+  );
 }
 
 /**
