@@ -163,48 +163,59 @@ async function recordActiveUser(d1kv, chatId, fromUser) {
  * 复读机逻辑：检测连续相同内容并自动 +1 复读
  */
 async function handleRepeat(d1kv, chatId, content, token) {
-  if (!content) return;
+     if (!content) return;
 
-  const repeatKey = `group:${chatId}:repeat`;
-  const lastMsgData = (await d1kv.get(repeatKey, { type: "json" })) || {
-    key: "",
-    count: 0,
-  };
+     const repeatKey = `group:${chatId}:repeat`;
+     const lastMsgData = (await d1kv.get(repeatKey, { type: "json" })) || {
+         key: "",
+         count: 0,
+     };
 
-  if (content.key === lastMsgData.key) {
-    const newCount = lastMsgData.count + 1;
-    await d1kv.put(
-      repeatKey,
-      JSON.stringify({ key: content.key, count: newCount })
-    );
-    console.log(`🔁 发现复读！Key: "${content.key}"，当前第 ${newCount} 次`);
+     if (content.key === lastMsgData.key) {
+        const newCount = lastMsgData.count + 1;
+        if (newCount >= 2) {
+            console.log(`🔁 发现复读！Key: "${content.key}"，当前第 ${newCount} 次`);
 
-    let endpoint = "sendMessage";
-    let body = { chat_id: chatId };
+            let endpoint = "sendMessage";
+            let body = { chat_id: chatId };
 
-    if (content.type === "sticker") {
-      endpoint = "sendSticker";
-      body.sticker = content.fileId;
-    } else if (content.type === "photo") {
-      endpoint = "sendPhoto";
-      body.photo = content.fileId;
-      if (content.caption) body.caption = content.caption;
-    } else if (content.type === "text") {
-      endpoint = "sendMessage";
-      body.text = content.text;
-    }
+            if (content.type === "sticker") {
+                endpoint = "sendSticker";
+                body.sticker = content.fileId;
+            } else if (content.type === "photo") {
+                endpoint = "sendPhoto";
+                body.photo = content.fileId;
+                if (content.caption) body.caption = content.caption;
+            } else if (content.type === "text") {
+                endpoint = "sendMessage";
+                body.text = content.text;
+            }
 
-    await fetch(`https://api.telegram.org/bot${token}/${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } else {
-    await d1kv.put(
-      repeatKey,
-      JSON.stringify({ key: content.key, count: 1 })
-    );
-  }
+            await fetch(`https://api.telegram.org/bot${token}/${endpoint}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+
+            // Bot 复读后重新开始计数。
+            // 下一条相同内容的人类消息只作为第 1 次，不立即再次触发复读。
+            await d1kv.put(
+                repeatKey,
+                JSON.stringify({ key: content.key, count: 0 })
+            );
+        } else {
+            await d1kv.put(
+                repeatKey,
+                JSON.stringify({ key: content.key, count: newCount })
+            );
+        }
+
+     } else {
+         await d1kv.put(
+             repeatKey,
+             JSON.stringify({ key: content.key, count: 1 })
+         );
+     }
 }
 
 /**
