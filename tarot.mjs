@@ -13,7 +13,7 @@ function mulberry32(seed) {
 
 /**
  * 基于用户 ID + 日期生成可复现的抽牌结果
- * @param {number} userId
+ * @param {object} fromUser
  * @returns {Promise<{card: object, isUpright: boolean}>}
  */
 async function drawTarot(fromUser) {
@@ -29,36 +29,40 @@ async function drawTarot(fromUser) {
   return { card: TAROT_CARDS[cardIndex], isUpright };
 }
 
+/**
+ * 真正随机抽一张牌，不受日期限制
+ * @returns {{card: object, isUpright: boolean}}
+ */
+function drawRandomTarot() {
+  const buf = new Uint32Array(2);
+  crypto.getRandomValues(buf);
+  const cardIndex = Math.floor((buf[0] / 0x100000000) * TAROT_CARDS.length);
+  const isUpright = buf[1] >= 0x80000000;
+  return { card: TAROT_CARDS[cardIndex], isUpright };
+}
 
-export async function handleTarot(env, msg, ctx) {
+async function replyTarotDraw(env, msg, draw) {
   const chatId = msg.chat.id;
-  const chatText = (msg.text || msg.caption || "").trim();
   const messageId = msg.message_id;
-  const userId = msg.from;
   const token = env.TG_TOKEN;
-
-  // 1. 抽牌
-  const { card, isUpright } = await drawTarot(userId);
+  const { card, isUpright } = draw;
   const position = isUpright ? "正位" : "逆位";
   const interpretation = isUpright ? card.positive : card.negative;
 
-  // 2. 构建图片文件名（逆位用预生成的 _revert 版本）
+  // 构建图片文件名（逆位用预生成的 _revert 版本）
   const baseName = card.imageName; // 如 "The Fool.jpg"
   const extIndex = baseName.lastIndexOf(".");
   const nameWithoutExt = baseName.substring(0, extIndex);
   const ext = baseName.substring(extIndex);
   const imageFileName = isUpright ? baseName : `${nameWithoutExt}_revert${ext}`;
 
-  // 3. 拼接完整图片 URL
   const baseUrl = env.TAROT_IMAGE_BASE_URL || "https://raw.githubusercontent.com/LoliLin/LinVerseHelperBot/main/TarotImages";
   const imageUrl = `${baseUrl}/${encodeURIComponent(imageFileName)}`;
 
-  // 4. 构建 caption
   const caption = `${card.name} (${position})\n\n解读:\n${interpretation}`;
 
   console.log(`✅ 已抽取塔罗牌: ${caption}`);
 
-  // 5. 通过 Telegram API 发送图片（带描述）
   const apiUrl = `https://api.telegram.org/bot${token}/sendPhoto`;
   const res = await fetch(apiUrl, {
     method: "POST",
@@ -74,4 +78,14 @@ export async function handleTarot(env, msg, ctx) {
   if (!res.ok) {
     console.error("发送失败:", await res.text());
   }
+}
+
+export async function handleTarot(env, msg, ctx) {
+  const draw = await drawTarot(msg.from);
+  await replyTarotDraw(env, msg, draw);
+}
+
+export async function handleImTarot(env, msg, ctx) {
+  const draw = drawRandomTarot();
+  await replyTarotDraw(env, msg, draw);
 }

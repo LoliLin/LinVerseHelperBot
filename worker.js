@@ -1,4 +1,4 @@
-import { handleTarot } from "./tarot.mjs";
+import { handleTarot, handleImTarot } from "./tarot.mjs";
 import { 
   parseMention, 
   makeUserTag, 
@@ -50,6 +50,9 @@ export default {
         );
         cmdUsed = cmdUsed || await verifyCommands(
           ["/tarot", "/塔罗", "/chou", "塔罗牌"], env, msg, ctx, handleTarot
+        );
+        cmdUsed = cmdUsed || await verifyCommands(
+          ["/imtarot"], env, msg, ctx, handleImTarot
         );
         cmdUsed = cmdUsed || await verifyCommands(
           ["/notify"], env, msg, ctx, handleNotify, condition_handleNotify
