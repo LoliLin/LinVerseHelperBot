@@ -9,16 +9,7 @@ Required Worker bindings/variables:
 - `TG_TOKEN`: Telegram bot token
 - `BOT_NAME`: Telegram bot username, without `@`
 
-Apply the D1 migration before deploying:
-
-```sh
-npx wrangler d1 migrations apply tg-linbot --remote
-```
-
-The migration imports records stored in the old D1 `kv_store` table, replaces it
-with `group_members` and `repeat_state`, then drops `kv_store`. It does not import
-values that exist only in the old Cloudflare KV namespace; the bot no longer
-requires or reads that namespace.
+Existing state remains in the D1 `kv_store` table. No Cloudflare KV binding is required.
 
 ## BotFather commands
 

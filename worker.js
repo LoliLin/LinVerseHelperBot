@@ -1,11 +1,14 @@
 import { handleTarot, handleImTarot } from "./tarot.mjs";
 import {
+  parseMention,
+  makeUserTag,
   recordUserCategory,
   unrecordUserCategory,
   buildGroupMentionList,
   postMentionCategory,
   getCategories
 } from "./userManagers.mjs";
+import { D1AsKV } from "./kvAdapter.js";
 import { handleBinance, handlePolymarket } from "./marketCommands.mjs";
 
 export default {
@@ -17,7 +20,7 @@ export default {
     const configError = verifyArguments(env);
     if (configError) return configError;
 
-    const db = env.DATA_DB;
+    const d1kv = getD1AsKV(env);
 
     try {
       const update = await request.json();
@@ -35,7 +38,7 @@ export default {
           } else {
             console.log(`${fromUser.first_name || 'User'} : ${JSON.stringify(msg)}`);
           }
-          await recordActiveUser(db, chatId, fromUser);
+          await recordActiveUser(d1kv, chatId, fromUser);
         } else {
           console.log(`${JSON.stringify(msg)}`);
         }
@@ -70,7 +73,7 @@ export default {
 
         // 如果没有触发任何指令，执行复读机逻辑
         if (!cmdUsed && content) {
-          await handleRepeat(db, chatId, content, env.TG_TOKEN);
+          await handleRepeat(d1kv, chatId, content, env.TG_TOKEN);
         }
       }
 
@@ -82,6 +85,9 @@ export default {
   },
 };
 
+function getD1AsKV(env) {
+  return new D1AsKV(env.DATA_DB);
+}
 
 /**
  * 校验并执行指令（重写：支持正则匹配与可选 _extraTrigger）
@@ -159,27 +165,8 @@ function getMessageContent(msg) {
 /**
  * 记录群内活跃用户
  */
-async function recordActiveUser(db, chatId, fromUser) {
-  try {
-    await recordUserCategory(db, chatId, fromUser, "members");
-  } catch (err) {
-    console.error("❌ 记录群内活跃用户失败:", err.stack || err);
-  }
-}
-async function saveRepeatState(db, chatId, state) {
-  await db.prepare(
-    `INSERT INTO repeat_state (chat_id, content_key, count, bot_repeated)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(chat_id) DO UPDATE SET
-       content_key = excluded.content_key,
-       count = excluded.count,
-       bot_repeated = excluded.bot_repeated`
-  ).bind(
-    String(chatId),
-    state.key,
-    state.count,
-    state.botRepeated ? 1 : 0
-  ).run();
+async function recordActiveUser(d1kv, chatId, fromUser) {
+  await recordUserCategory(d1kv, chatId, fromUser, "members");
 }
 
 /**
@@ -188,29 +175,26 @@ async function saveRepeatState(db, chatId, state) {
  * Bot 复读后，人类再次发送相同内容 -> 忽略
  * 直到出现不同内容，才重新开始统计
  */
-async function handleRepeat(db, chatId, content, token) {
+async function handleRepeat(d1kv, chatId, content, token) {
   if (!content) return;
 
-  const row = await db.prepare(
-    "SELECT content_key, count, bot_repeated FROM repeat_state WHERE chat_id = ?"
-  ).bind(String(chatId)).first();
-  const lastMsgData = row ? {
-    key: row.content_key,
-    count: row.count,
-    botRepeated: Boolean(row.bot_repeated),
-  } : {
+  const repeatKey = `group:${chatId}:repeat`;
+
+  const lastMsgData = (await d1kv.get(repeatKey, { type: "json" })) || {
     key: "",
     count: 0,
     botRepeated: false,
   };
-
   // 1. 如果内容变了，直接开始新的复读计数
   if (content.key !== lastMsgData.key) {
-    await saveRepeatState(db, chatId, {
-      key: content.key,
-      count: 1,
-      botRepeated: false,
-    });
+    await d1kv.put(
+      repeatKey,
+      JSON.stringify({
+        key: content.key,
+        count: 1,
+        botRepeated: false,
+      })
+    );
     return;
   }
 
@@ -266,21 +250,26 @@ async function handleRepeat(db, chatId, content, token) {
 
     // Bot 已经复读这个内容。
     // 保留 key，但标记 botRepeated，直到出现不同内容。
-    await saveRepeatState(db, chatId, {
-      key: content.key,
-      count: newCount,
-      botRepeated: true,
-    });
-
+    await d1kv.put(
+      repeatKey,
+      JSON.stringify({
+        key: content.key,
+        count: newCount,
+        botRepeated: true,
+      })
+    );
     return;
   }
 
   // 5. 还没达到复读阈值，继续累计
-  await saveRepeatState(db, chatId, {
-    key: content.key,
-    count: newCount,
-    botRepeated: false,
-  });
+  await d1kv.put(
+    repeatKey,
+    JSON.stringify({
+      key: content.key,
+      count: newCount,
+      botRepeated: false,
+    })
+  );
 }
 
 /**
@@ -295,7 +284,8 @@ async function condition_handleNotify(env, msg, ctx) {
     return false;
   }
 
-  const categories = await getCategories(env.DATA_DB, msg.chat.id);
+  const d1kv = getD1AsKV(env);
+  const categories = await getCategories(d1kv, msg.chat.id);
 
   if (!Array.isArray(categories) || categories.length === 0) {
     return false;
@@ -309,19 +299,19 @@ async function condition_handleNotify(env, msg, ctx) {
  */
 async function handleNotify(env, msg, ctx) {
   const text = (msg.text || msg.caption || "").trim();
-  const db = env.DATA_DB;
+  const d1kv = getD1AsKV(env);
 
   if (text.startsWith("/")) {
     const cmds = text.split(/\s+/);
     if (cmds.length >= 2) {
       const category = cmds[1];
-      await postMentionCategory(db, msg.chat.id, msg.message_id, env.TG_TOKEN, category);
+      await postMentionCategory(d1kv, msg.chat.id, msg.message_id, env.TG_TOKEN, category);
       return true;
     }
     await postInvokeSuccess(msg.chat.id, msg.message_id, env.TG_TOKEN, "请指定要通知的标签，例如：<code>/notify dev</code>");
     return true;
   } else {
-    const env_categories = await getCategories(db, msg.chat.id);
+    const env_categories = await getCategories(d1kv, msg.chat.id);
     if (!Array.isArray(env_categories) || env_categories.length === 0) return false;
 
     const rawCategories = [...text.matchAll(/@([\p{L}\p{N}_]+)/gu)]
@@ -333,7 +323,7 @@ async function handleNotify(env, msg, ctx) {
 
     const mentionsSet = new Set();
     for (const category of categories) {
-      const mentions = await buildGroupMentionList(db, env.TG_TOKEN, msg.chat.id, category);
+      const mentions = await buildGroupMentionList(d1kv, env.TG_TOKEN, msg.chat.id, category);
       if (Array.isArray(mentions)) {
         mentions.forEach((user) => mentionsSet.add(user));
       }
@@ -406,8 +396,8 @@ export async function handleTag(env, msg, ctx) {
 
   if (!targetUser || !category) return;
 
-  const db = env.DATA_DB;
-  await recordUserCategory(db, msg.chat.id, targetUser, category);
+  const d1kv = getD1AsKV(env);
+  await recordUserCategory(d1kv, msg.chat.id, targetUser, category);
 
   const displayName = getDisplayName(targetUser);
   await postInvokeSuccess(
@@ -458,8 +448,8 @@ export async function handleRemoveTag(env, msg, ctx) {
 
   if (!targetUser || !category) return;
 
-  const db = env.DATA_DB;
-  await unrecordUserCategory(db, msg.chat.id, targetUser, category);
+  const d1kv = getD1AsKV(env);
+  await unrecordUserCategory(d1kv, msg.chat.id, targetUser, category);
 
   const displayName = getDisplayName(targetUser);
   await postInvokeSuccess(
@@ -480,7 +470,7 @@ function getDisplayName(user) {
 
 async function handleEveryone(env, msg, ctx) {
   console.log("🎯 触发了 @everyone 逻辑");
-  await postMentionCategory(env.DATA_DB, msg.chat.id, msg.message_id, env.TG_TOKEN, "members");
+  await postMentionCategory(getD1AsKV(env), msg.chat.id, msg.message_id, env.TG_TOKEN, "members");
 }
 
 async function postInvokeSuccess(chatId, messageId, token, text = "好的喵！") {

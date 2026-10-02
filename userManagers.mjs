@@ -15,14 +15,16 @@ export function makeUserTag(fromUser) {
   return  fromUser.username ? `@${fromUser.username}` : `#${fromUser.id}*${fromUser.first_name}`;
 }
 
-export async function buildGroupMentionList(db, token, chatId, category) {
+export async function buildGroupMentionList(d1kv, token, chatId, category) {
   const isEveryone = category === "everyone" || category === "members";
-  const memberCategory = isEveryone ? "members" : category;
-  const { results: members = [] } = await db.prepare(
-    "SELECT user_tag FROM group_members WHERE chat_id = ? AND category = ?"
-  ).bind(String(chatId), memberCategory).all();
+  const membersKey = isEveryone ? `group:${chatId}:members` : `group:${chatId}:${category}`;
 
-  const finalTags = new Set(members.map((member) => member.user_tag));
+  const finalTags = new Set();
+
+  const cachedMembersRaw = await d1kv.get(membersKey, { type: "json" });
+  if (Array.isArray(cachedMembersRaw)) {
+    cachedMembersRaw.forEach((tag) => finalTags.add(tag));
+  }
 
   if (isEveryone) {
     try {
@@ -46,31 +48,102 @@ export async function buildGroupMentionList(db, token, chatId, category) {
   return Array.from(finalTags).map(parseMention);
 }
 
-export async function getCategories(db, chatId) {
-  const { results = [] } = await db.prepare(
-    "SELECT DISTINCT category FROM group_members WHERE chat_id = ? ORDER BY category"
-  ).bind(String(chatId)).all();
-  return results.map((row) => row.category);
+export async function getCategories(d1kv, chatId) {
+  const categoriesKey = `group:${chatId}*categories`;
+  let categories = [];
+  try {
+    categories = (await d1kv.get(categoriesKey, { type: "json" })) || [];
+  } catch (e) {
+    console.error("❌ 读取 KV 数据库失败:", e.message);
+    return;
+  }
+  return categories;
 }
 
-export async function recordUserCategory(db, chatId, fromUser, category) {
+export async function recordUserCategory(d1kv, chatId, fromUser, category) {
   if (!fromUser || fromUser.is_bot) return;
 
-  await db.prepare(
-    "INSERT OR IGNORE INTO group_members (chat_id, category, user_tag) VALUES (?, ?, ?)"
-  ).bind(String(chatId), category, makeUserTag(fromUser)).run();
+  const membersKey = `group:${chatId}:${category}`;
+  const categoriesKey = `group:${chatId}*categories`;
+
+  //members
+  let members = [];
+  try {
+    members = (await d1kv.get(membersKey, { type: "json" })) || [];
+  } catch (e) {
+    console.error("❌ 读取 KV 数据库失败:", e.message);
+    return;
+  }
+
+  const userTag = makeUserTag(fromUser);
+  if (!members.includes(userTag)) {
+    members.push(userTag);
+    await d1kv.put(membersKey, JSON.stringify(members));
+  }
+
+  //categories
+  let categories = [];
+  try {
+    categories = (await d1kv.get(categoriesKey, { type: "json" })) || [];
+  } catch (e) {
+    console.error("❌ 读取 KV 数据库失败:", e.message);
+    return;
+  }
+
+  if (!categories.includes(category)) {
+    categories.push(category);
+    await d1kv.put(categoriesKey, JSON.stringify(categories));
+  }
 }
 
-export async function unrecordUserCategory(db, chatId, fromUser, category) {
+export async function unrecordUserCategory(d1kv, chatId, fromUser, category) {
   if (!fromUser || fromUser.is_bot) return;
 
-  await db.prepare(
-    "DELETE FROM group_members WHERE chat_id = ? AND category = ? AND user_tag = ?"
-  ).bind(String(chatId), category, makeUserTag(fromUser)).run();
+  const membersKey = `group:${chatId}:${category}`;
+  const categoriesKey = `group:${chatId}*categories`;
+
+  // 1. 读取 members 列表并移除当前用户
+  let members = [];
+  try {
+    members = (await d1kv.get(membersKey, { type: "json" })) || [];
+  } catch (e) {
+    console.error("❌ 读取 KV 数据库失败:", e.message);
+    return;
+  }
+
+  const userTag = makeUserTag(fromUser);
+  const originalLength = members.length;
+
+  // 过滤掉当前用户
+  members = members.filter((user) => user !== userTag);
+
+  // 如果长度未发生改变，说明用户原本就不在该分类里，无需重复更新
+  if (members.length === originalLength) {
+    return;
+  }
+
+  // 保存移除后的成员列表
+  await d1kv.put(membersKey, JSON.stringify(members));
+
+  // 2. 如果该分类下已经没有任何成员，则将该 category 从总分类列表中删除
+  if (members.length === 0) {
+    let categories = [];
+    try {
+      categories = (await d1kv.get(categoriesKey, { type: "json" })) || [];
+    } catch (e) {
+      console.error("❌ 读取 KV 数据库失败:", e.message);
+      return;
+    }
+
+    if (categories.includes(category)) {
+      categories = categories.filter((item) => item !== category);
+      await d1kv.put(categoriesKey, JSON.stringify(categories));
+    }
+  }
 }
 
-export async function postMentionCategory(db, chatId, messageId, token, category) {
-  const resultList = await buildGroupMentionList(db, token, chatId, category);
+export async function postMentionCategory(d1kv, chatId, messageId, token, category) {
+  const resultList = await buildGroupMentionList(d1kv, token, chatId, category);
   if (resultList.length > 0) {
     const mentionText = resultList.join(" ");
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
