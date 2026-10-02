@@ -25,6 +25,12 @@ requires or reads that namespace.
 Send `/setcommands` to `@BotFather`, select this bot, then paste:
 
 ```text
+everyone - Mention group members
+tarot - Draw today's tarot card
+imtarot - Draw a random tarot card
+notify - Notify a group tag
+assign - Assign a tag to a user
+unassign - Remove a tag from a user
 polymarket - Polymarket 热门市场、盘口与下注链接
 binance - Binance 现货行情（默认 BTCUSDT）
 ```
