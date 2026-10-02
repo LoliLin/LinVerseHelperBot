@@ -1,6 +1,6 @@
 const GAMMA_API = "https://gamma-api.polymarket.com";
 const CLOB_API = "https://clob.polymarket.com";
-const BINANCE_API = "https://api.binance.com/api/v3";
+const BINANCE_API = "https://data-api.binance.vision/api/v3";
 const HOT_MARKET_COUNT = 5;
 
 export async function handlePolymarket(env, msg) {
