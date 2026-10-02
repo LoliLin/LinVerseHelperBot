@@ -160,7 +160,11 @@ function getMessageContent(msg) {
  * 记录群内活跃用户
  */
 async function recordActiveUser(db, chatId, fromUser) {
-  await recordUserCategory(db, chatId, fromUser, "members");
+  try {
+    await recordUserCategory(db, chatId, fromUser, "members");
+  } catch (err) {
+    console.error("❌ 记录群内活跃用户失败:", err.stack || err);
+  }
 }
 async function saveRepeatState(db, chatId, state) {
   await db.prepare(
