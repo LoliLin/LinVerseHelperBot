@@ -20,6 +20,15 @@ with `group_members` and `repeat_state`, then drops `kv_store`. It does not impo
 values that exist only in the old Cloudflare KV namespace; the bot no longer
 requires or reads that namespace.
 
+## BotFather commands
+
+Send `/setcommands` to `@BotFather`, select this bot, then paste:
+
+```text
+polymarket - Polymarket 热门市场、盘口与下注链接
+binance - Binance 现货行情（默认 BTCUSDT）
+```
+
 ## Market commands
 
 - `/polymarket` or `/polymarket hot`: show the five active markets with highest 24-hour volume.
